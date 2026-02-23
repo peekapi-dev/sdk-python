@@ -9,7 +9,6 @@ import pytest
 
 from apidash.middleware.wsgi import ApiDashWSGI
 
-
 # ── Helpers ──────────────────────────────────────────────────────────
 
 

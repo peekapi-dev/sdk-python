@@ -2,28 +2,30 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 import pytest
 
 from apidash.middleware.asgi import ApiDashASGI
 
-
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
 async def simple_asgi_app(scope: dict, receive: Any, send: Any) -> None:
     """Minimal ASGI app that returns 200 with a body."""
-    await send({
-        "type": "http.response.start",
-        "status": 200,
-        "headers": [[b"content-type", b"text/plain"]],
-    })
-    await send({
-        "type": "http.response.body",
-        "body": b"Hello, World!",
-    })
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [[b"content-type", b"text/plain"]],
+        }
+    )
+    await send(
+        {
+            "type": "http.response.body",
+            "body": b"Hello, World!",
+        }
+    )
 
 
 async def error_asgi_app(scope: dict, receive: Any, send: Any) -> None:
@@ -120,7 +122,7 @@ class TestAsgiMiddleware:
 
     @pytest.mark.asyncio
     async def test_non_http_scope_passthrough(self, make_client):
-        _make, server, _ = make_client
+        _make, _server, _ = make_client
         client = _make()
 
         called = False

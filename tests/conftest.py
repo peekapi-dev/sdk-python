@@ -1,17 +1,16 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import signal
-import tempfile
 import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 
 import pytest
 
 from apidash import ApiDashClient
-from apidash.types import Options
 
 
 @pytest.fixture
@@ -90,22 +89,16 @@ def make_client(ingest_server, tmp_storage_path):
     for c in clients:
         # Restore signal handlers before shutdown to avoid test interference
         for sig, handler in list(c._original_handlers.items()):
-            try:
+            with contextlib.suppress(OSError, ValueError):
                 signal.signal(sig, handler)
-            except (OSError, ValueError):
-                pass
             c._original_handlers.clear()
         c._shutdown = True
         c._done.set()
         c._wake.set()
-        try:
+        with contextlib.suppress(Exception):
             c._thread.join(timeout=2)
-        except Exception:
-            pass
 
     # Clean up storage
     for path in (tmp_storage_path, tmp_storage_path + ".recovering"):
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(path)
-        except OSError:
-            pass

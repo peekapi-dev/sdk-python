@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import time
 from typing import Any
 
@@ -70,20 +71,20 @@ class ApiDashMiddleware:
             request_size = 0
             cl = request.META.get("CONTENT_LENGTH")
             if cl:
-                try:
+                with contextlib.suppress(ValueError, TypeError):
                     request_size = int(cl)
-                except (ValueError, TypeError):
-                    pass
 
-            self._client.track({
-                "method": request.method,
-                "path": request.path,
-                "status_code": response.status_code,
-                "response_time_ms": round(elapsed_ms, 2),
-                "request_size": request_size,
-                "response_size": response_size,
-                "consumer_id": consumer_id,
-            })
+            self._client.track(
+                {
+                    "method": request.method,
+                    "path": request.path,
+                    "status_code": response.status_code,
+                    "response_time_ms": round(elapsed_ms, 2),
+                    "request_size": request_size,
+                    "response_size": response_size,
+                    "consumer_id": consumer_id,
+                }
+            )
         except Exception:
             pass  # Never crash the app
 

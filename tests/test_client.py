@@ -12,6 +12,11 @@ from apidash import ApiDashClient
 from apidash.types import Options, RequestEvent
 
 
+def _evt(**kw):
+    """Shortcut for a minimal event dict."""
+    return {"method": "GET", "path": "/", "status_code": 200, "response_time_ms": 1, **kw}
+
+
 # ── Constructor validation ───────────────────────────────────────────
 
 
@@ -76,7 +81,7 @@ class TestBuffer:
         _make, _, _ = make_client
         client = _make()
         long_path = "/" + "x" * 3000
-        client.track({"method": "GET", "path": long_path, "status_code": 200, "response_time_ms": 10})
+        client.track(_evt(path=long_path, response_time_ms=10))
         assert len(client._buffer[0]["path"]) == 2048
 
     def test_track_adds_timestamp(self, make_client):
@@ -89,7 +94,7 @@ class TestBuffer:
         _make, _, _ = make_client
         client = _make()
         ts = "2024-01-01T00:00:00Z"
-        client.track({"method": "GET", "path": "/", "status_code": 200, "response_time_ms": 1, "timestamp": ts})
+        client.track(_evt(timestamp=ts))
         assert client._buffer[0]["timestamp"] == ts
 
     def test_track_never_raises(self, make_client):
@@ -103,13 +108,15 @@ class TestBuffer:
         _make, _, _ = make_client
         client = _make(max_event_bytes=200)
         big_meta = {"data": "x" * 500}
-        client.track({
-            "method": "GET",
-            "path": "/api",
-            "status_code": 200,
-            "response_time_ms": 10,
-            "metadata": big_meta,
-        })
+        client.track(
+            {
+                "method": "GET",
+                "path": "/api",
+                "status_code": 200,
+                "response_time_ms": 10,
+                "metadata": big_meta,
+            }
+        )
         # Event should be stored without metadata
         if client._buffer:
             assert "metadata" not in client._buffer[0]
@@ -117,12 +124,14 @@ class TestBuffer:
     def test_max_event_bytes_drops_if_still_too_large(self, make_client):
         _make, _, _ = make_client
         client = _make(max_event_bytes=50)
-        client.track({
-            "method": "GET",
-            "path": "/" + "x" * 200,
-            "status_code": 200,
-            "response_time_ms": 10,
-        })
+        client.track(
+            {
+                "method": "GET",
+                "path": "/" + "x" * 200,
+                "status_code": 200,
+                "response_time_ms": 10,
+            }
+        )
         assert len(client._buffer) == 0
 
 
@@ -133,7 +142,7 @@ class TestFlush:
     def test_flush_sends_events(self, make_client):
         _make, server, _ = make_client
         client = _make()
-        client.track({"method": "GET", "path": "/users", "status_code": 200, "response_time_ms": 42})
+        client.track(_evt(path="/users", response_time_ms=42))
         client.flush()
         assert len(server.payloads) == 1
         assert server.payloads[0]["api_key"] == "test-key"
@@ -141,7 +150,7 @@ class TestFlush:
         assert server.payloads[0]["events"][0]["path"] == "/users"
 
     def test_flush_clears_buffer(self, make_client):
-        _make, server, _ = make_client
+        _make, _server, _ = make_client
         client = _make()
         client.track({"method": "GET", "path": "/", "status_code": 200, "response_time_ms": 1})
         client.flush()
@@ -157,7 +166,7 @@ class TestFlush:
         _make, server, _ = make_client
         client = _make(batch_size=2)
         for i in range(5):
-            client.track({"method": "GET", "path": f"/{i}", "status_code": 200, "response_time_ms": 1})
+            client.track(_evt(path=f"/{i}"))
         client.flush()
         # Should send batch of 2, leaving 3 in buffer
         assert len(server.payloads) == 1
@@ -215,7 +224,7 @@ class TestRetry:
         assert len(client._buffer) == 0
 
     def test_success_resets_failures(self, make_client):
-        _make, server, _ = make_client
+        _make, _server, _ = make_client
         client = _make()
         client._consecutive_failures = 3
         client._backoff_until = time.monotonic() - 1  # expired
@@ -298,16 +307,18 @@ class TestDiskPersistence:
     def test_load_from_disk_recovers(self, tmp_storage_path, ingest_server):
         _, url = ingest_server
         # Write events to disk
-        events = [{"method": "GET", "path": "/recovered", "status_code": 200, "response_time_ms": 1}]
+        events = [_evt(path="/recovered")]
         with open(tmp_storage_path, "w") as f:
             f.write(json.dumps(events) + "\n")
 
-        client = ApiDashClient({
-            "api_key": "test",
-            "endpoint": url,
-            "storage_path": tmp_storage_path,
-            "flush_interval": 60.0,
-        })
+        client = ApiDashClient(
+            {
+                "api_key": "test",
+                "endpoint": url,
+                "storage_path": tmp_storage_path,
+                "flush_interval": 60.0,
+            }
+        )
         assert len(client._buffer) == 1
         assert client._buffer[0]["path"] == "/recovered"
         client._shutdown = True
@@ -322,12 +333,14 @@ class TestDiskPersistence:
             f.write("not valid json\n")
             f.write(json.dumps(good) + "\n")
 
-        client = ApiDashClient({
-            "api_key": "test",
-            "endpoint": url,
-            "storage_path": tmp_storage_path,
-            "flush_interval": 60.0,
-        })
+        client = ApiDashClient(
+            {
+                "api_key": "test",
+                "endpoint": url,
+                "storage_path": tmp_storage_path,
+                "flush_interval": 60.0,
+            }
+        )
         assert len(client._buffer) == 1
         assert client._buffer[0]["path"] == "/good"
         client._shutdown = True
@@ -339,7 +352,7 @@ class TestDiskPersistence:
         _make, _, _ = make_client
         client = _make(max_storage_bytes=100)
         # Write enough to exceed limit
-        big_events = [{"method": "GET", "path": "/" + "x" * 200, "status_code": 200, "response_time_ms": 1}]
+        big_events = [_evt(path="/" + "x" * 200)]
         client._persist_to_disk(big_events)
         # Second write should be skipped
         client._persist_to_disk(big_events)
@@ -348,7 +361,7 @@ class TestDiskPersistence:
         assert len(lines) == 1
 
     def test_recovery_file_cleaned_after_flush(self, make_client, tmp_storage_path):
-        _make, server, _ = make_client
+        _make, _server, _ = make_client
         # Pre-write events
         events = [{"method": "GET", "path": "/pre", "status_code": 200, "response_time_ms": 1}]
         with open(tmp_storage_path, "w") as f:
@@ -367,7 +380,7 @@ class TestShutdown:
     def test_shutdown_flushes(self, make_client):
         _make, server, _ = make_client
         client = _make()
-        client.track({"method": "GET", "path": "/shutdown", "status_code": 200, "response_time_ms": 1})
+        client.track(_evt(path="/shutdown"))
         client.shutdown()
         assert len(server.payloads) == 1
 

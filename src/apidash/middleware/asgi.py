@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import time
 from typing import Any
 
@@ -63,19 +64,19 @@ class ApiDashASGI:
                 request_size = 0
                 cl = headers.get("content-length")
                 if cl:
-                    try:
+                    with contextlib.suppress(ValueError, TypeError):
                         request_size = int(cl)
-                    except (ValueError, TypeError):
-                        pass
 
-                self.client.track({
-                    "method": method,
-                    "path": path,
-                    "status_code": status_code,
-                    "response_time_ms": round(elapsed_ms, 2),
-                    "request_size": request_size,
-                    "response_size": response_size,
-                    "consumer_id": consumer_id,
-                })
+                self.client.track(
+                    {
+                        "method": method,
+                        "path": path,
+                        "status_code": status_code,
+                        "response_time_ms": round(elapsed_ms, 2),
+                        "request_size": request_size,
+                        "response_size": response_size,
+                        "consumer_id": consumer_id,
+                    }
+                )
             except Exception:
                 pass  # Never crash the app

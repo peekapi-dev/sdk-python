@@ -1,5 +1,5 @@
 from .asgi import ApiDashASGI
-from .wsgi import ApiDashWSGI
 from .django import ApiDashMiddleware
+from .wsgi import ApiDashWSGI
 
-__all__ = ["ApiDashASGI", "ApiDashWSGI", "ApiDashMiddleware"]
+__all__ = ["ApiDashASGI", "ApiDashMiddleware", "ApiDashWSGI"]

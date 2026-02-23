@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from apidash._consumer import hash_consumer_id, default_identify_consumer
+from apidash._consumer import default_identify_consumer, hash_consumer_id
 
 
 class TestHashConsumerId:

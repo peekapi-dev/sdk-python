@@ -14,6 +14,9 @@ _PRIVATE_IP_RE = re.compile(
     r")$"
 )
 
+# CGNAT range not covered by ipaddress.is_private in all Python versions
+_CGNAT_NETWORK = ipaddress.IPv4Network("100.64.0.0/10")
+
 
 def is_private_ip(host: str) -> bool:
     """Check if a hostname/IP is a private or reserved address.
@@ -37,8 +40,8 @@ def is_private_ip(host: str) -> bool:
             return mapped.is_private or mapped.is_loopback or mapped.is_link_local
         return addr.is_private or addr.is_loopback or addr.is_link_local
 
-    # IPv4 — ipaddress.is_private covers RFC 1918 + CGNAT + loopback + link-local
-    return addr.is_private or addr.is_loopback or addr.is_link_local
+    # IPv4 — is_private covers RFC 1918 + loopback + link-local; add CGNAT explicitly
+    return addr.is_private or addr.is_loopback or addr.is_link_local or addr in _CGNAT_NETWORK
 
 
 def validate_endpoint(endpoint: str) -> str:

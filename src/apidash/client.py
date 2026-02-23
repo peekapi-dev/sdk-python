@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import atexit
+import contextlib
 import hashlib
 import json
 import logging
@@ -8,7 +9,6 @@ import os
 import random
 import re
 import signal
-import sys
 import tempfile
 import threading
 import time
@@ -18,8 +18,8 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any
 
-from .types import Options, RequestEvent
 from ._ssrf import validate_endpoint
+from .types import Options, RequestEvent
 
 logger = logging.getLogger("apidash")
 
@@ -150,10 +150,8 @@ class ApiDashClient:
 
         # Remove signal handlers
         for sig, handler in self._original_handlers.items():
-            try:
+            with contextlib.suppress(OSError, ValueError):
                 signal.signal(sig, handler)
-            except (OSError, ValueError):
-                pass
         self._original_handlers.clear()
 
         # Stop background thread
@@ -179,10 +177,7 @@ class ApiDashClient:
         if self._shutdown:
             return
 
-        if isinstance(event, RequestEvent):
-            d = asdict(event)
-        else:
-            d = dict(event)
+        d = asdict(event) if isinstance(event, RequestEvent) else dict(event)
 
         # Sanitize
         d["method"] = str(d.get("method", ""))[:MAX_METHOD_LENGTH].upper()
@@ -270,9 +265,7 @@ class ApiDashClient:
 
             self._call_on_error(exc)
             if self._debug:
-                logger.warning(
-                    "apidash: flush failed (attempt %d): %s", failures, exc
-                )
+                logger.warning("apidash: flush failed (attempt %d): %s", failures, exc)
 
     def _send(self, events: list[dict[str, Any]]) -> None:
         body = json.dumps(events, separators=(",", ":")).encode()
@@ -293,10 +286,8 @@ class ApiDashClient:
         except urllib.error.HTTPError as exc:
             status = exc.code
             snippet = ""
-            try:
+            with contextlib.suppress(Exception):
                 snippet = exc.read(1024).decode(errors="replace")
-            except Exception:
-                pass
             if status in RETRYABLE_STATUS_CODES:
                 raise _RetryableError(f"HTTP {status}: {snippet}") from exc
             raise _NonRetryableError(f"HTTP {status}: {snippet}") from exc
@@ -380,10 +371,8 @@ class ApiDashClient:
                     try:
                         os.rename(path, rpath)
                     except OSError:
-                        try:
+                        with contextlib.suppress(OSError):
                             os.unlink(path)
-                        except OSError:
-                            pass
                     self._recovery_path = rpath
                 else:
                     self._recovery_path = path
@@ -394,10 +383,8 @@ class ApiDashClient:
 
     def _cleanup_recovery_file(self) -> None:
         if self._recovery_path:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(self._recovery_path)
-            except OSError:
-                pass
             self._recovery_path = None
 
     # ------------------------------------------------------------------
@@ -437,7 +424,5 @@ class ApiDashClient:
 
     def _call_on_error(self, exc: Exception) -> None:
         if self._on_error:
-            try:
+            with contextlib.suppress(Exception):
                 self._on_error(exc)
-            except Exception:
-                pass

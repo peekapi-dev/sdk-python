@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import time
 from typing import Any
 
@@ -31,14 +32,11 @@ class ApiDashWSGI:
 
         start = time.perf_counter()
         status_code = 0
-        response_size = 0
 
         def tracking_start_response(status: str, headers: list, exc_info: Any = None) -> Any:
             nonlocal status_code
-            try:
+            with contextlib.suppress(ValueError, IndexError, AttributeError):
                 status_code = int(status.split(" ", 1)[0])
-            except (ValueError, IndexError, AttributeError):
-                pass
             return start_response(status, headers, exc_info)
 
         try:
@@ -51,15 +49,17 @@ class ApiDashWSGI:
                 elapsed_ms = (time.perf_counter() - start) * 1000
                 headers = _extract_headers(environ)
                 consumer_id = default_identify_consumer(headers)
-                self.client.track({
-                    "method": environ.get("REQUEST_METHOD", "GET"),
-                    "path": environ.get("PATH_INFO", "/"),
-                    "status_code": 500,
-                    "response_time_ms": round(elapsed_ms, 2),
-                    "request_size": _get_content_length(environ),
-                    "response_size": 0,
-                    "consumer_id": consumer_id,
-                })
+                self.client.track(
+                    {
+                        "method": environ.get("REQUEST_METHOD", "GET"),
+                        "path": environ.get("PATH_INFO", "/"),
+                        "status_code": 500,
+                        "response_time_ms": round(elapsed_ms, 2),
+                        "request_size": _get_content_length(environ),
+                        "response_size": 0,
+                        "consumer_id": consumer_id,
+                    }
+                )
             except Exception:
                 pass
             raise
@@ -104,15 +104,17 @@ class _ResponseWrapper:
             elapsed_ms = (time.perf_counter() - self._start) * 1000
             headers = _extract_headers(self._environ)
             consumer_id = default_identify_consumer(headers)
-            client.track({
-                "method": self._environ.get("REQUEST_METHOD", "GET"),
-                "path": self._environ.get("PATH_INFO", "/"),
-                "status_code": self._status_code,
-                "response_time_ms": round(elapsed_ms, 2),
-                "request_size": _get_content_length(self._environ),
-                "response_size": self._size,
-                "consumer_id": consumer_id,
-            })
+            client.track(
+                {
+                    "method": self._environ.get("REQUEST_METHOD", "GET"),
+                    "path": self._environ.get("PATH_INFO", "/"),
+                    "status_code": self._status_code,
+                    "response_time_ms": round(elapsed_ms, 2),
+                    "request_size": _get_content_length(self._environ),
+                    "response_size": self._size,
+                    "consumer_id": consumer_id,
+                }
+            )
         except Exception:
             pass  # Never crash the app
 

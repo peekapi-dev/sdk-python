@@ -1,4 +1,4 @@
-"""Tests for ApiDashClient — constructor, buffer, flush, retry, disk, shutdown."""
+"""Tests for PeekApiClient — constructor, buffer, flush, retry, disk, shutdown."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ import time
 
 import pytest
 
-from apidash import ApiDashClient
-from apidash.types import Options, RequestEvent
+from peekapi import PeekApiClient
+from peekapi.types import Options, RequestEvent
 
 
 def _evt(**kw):
@@ -23,27 +23,28 @@ def _evt(**kw):
 class TestConstructor:
     def test_missing_api_key(self):
         with pytest.raises(ValueError, match="api_key is required"):
-            ApiDashClient({"api_key": "", "endpoint": "http://127.0.0.1:9999"})
+            PeekApiClient({"api_key": "", "endpoint": "http://127.0.0.1:9999"})
 
     def test_control_chars_in_api_key(self):
         with pytest.raises(ValueError, match="control characters"):
-            ApiDashClient({"api_key": "key\x00bad", "endpoint": "http://127.0.0.1:9999"})
+            PeekApiClient({"api_key": "key\x00bad", "endpoint": "http://127.0.0.1:9999"})
 
-    def test_missing_endpoint(self):
-        with pytest.raises(ValueError, match="endpoint is required"):
-            ApiDashClient({"api_key": "test", "endpoint": ""})
+    def test_missing_endpoint_uses_default(self):
+        client = PeekApiClient({"api_key": "test", "endpoint": ""})
+        assert "supabase.co" in client._endpoint
+        client.shutdown()
 
     def test_http_non_localhost_rejected(self):
         with pytest.raises(ValueError, match="HTTPS required"):
-            ApiDashClient({"api_key": "test", "endpoint": "http://example.com/ingest"})
+            PeekApiClient({"api_key": "test", "endpoint": "http://example.com/ingest"})
 
     def test_private_ip_rejected(self):
         with pytest.raises(ValueError, match="private"):
-            ApiDashClient({"api_key": "test", "endpoint": "https://10.0.0.1/ingest"})
+            PeekApiClient({"api_key": "test", "endpoint": "https://10.0.0.1/ingest"})
 
     def test_embedded_credentials_rejected(self):
         with pytest.raises(ValueError, match="credentials"):
-            ApiDashClient({"api_key": "test", "endpoint": "https://user:pass@example.com/ingest"})
+            PeekApiClient({"api_key": "test", "endpoint": "https://user:pass@example.com/ingest"})
 
     def test_valid_https_endpoint(self, make_client):
         _make, _, _ = make_client
@@ -53,7 +54,7 @@ class TestConstructor:
     def test_accepts_options_dataclass(self, ingest_server, tmp_storage_path):
         _, url = ingest_server
         opts = Options(api_key="dc-key", endpoint=url, storage_path=tmp_storage_path)
-        client = ApiDashClient(opts)
+        client = PeekApiClient(opts)
         assert client._api_key == "dc-key"
         client._shutdown = True
         client._done.set()
@@ -148,6 +149,14 @@ class TestFlush:
         assert server.payloads[0]["api_key"] == "test-key"
         assert len(server.payloads[0]["events"]) == 1
         assert server.payloads[0]["events"][0]["path"] == "/users"
+
+    def test_flush_sends_sdk_header(self, make_client):
+        _make, server, _ = make_client
+        client = _make()
+        client.track(_evt(path="/users", response_time_ms=42))
+        client.flush()
+        assert len(server.payloads) == 1
+        assert server.payloads[0]["sdk"].startswith("python/")
 
     def test_flush_clears_buffer(self, make_client):
         _make, _server, _ = make_client
@@ -311,7 +320,7 @@ class TestDiskPersistence:
         with open(tmp_storage_path, "w") as f:
             f.write(json.dumps(events) + "\n")
 
-        client = ApiDashClient(
+        client = PeekApiClient(
             {
                 "api_key": "test",
                 "endpoint": url,
@@ -333,7 +342,7 @@ class TestDiskPersistence:
             f.write("not valid json\n")
             f.write(json.dumps(good) + "\n")
 
-        client = ApiDashClient(
+        client = PeekApiClient(
             {
                 "api_key": "test",
                 "endpoint": url,
@@ -371,6 +380,24 @@ class TestDiskPersistence:
         # The file should have been renamed to .recovering
         recovery = tmp_storage_path + ".recovering"
         assert client._recovery_path == recovery or not os.path.exists(tmp_storage_path)
+
+
+    def test_runtime_disk_recovery(self, make_client, tmp_storage_path):
+        """Recovers persisted events during same process (not just startup)."""
+        _make, _server, _ = make_client
+        client = _make()
+
+        # Simulate events persisted to disk mid-process
+        events = [{"method": "GET", "path": "/runtime-recover", "status_code": 200, "response_time_ms": 1}]
+        with open(tmp_storage_path, "w") as f:
+            f.write(json.dumps(events) + "\n")
+
+        # Trigger runtime recovery on the same client
+        client._load_from_disk()
+
+        with client._lock:
+            paths = [e["path"] for e in client._buffer]
+        assert "/runtime-recover" in paths
 
 
 # ── Shutdown ─────────────────────────────────────────────────────────

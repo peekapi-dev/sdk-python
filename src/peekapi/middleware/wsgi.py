@@ -7,22 +7,22 @@ import time
 from typing import Any
 
 from .._consumer import default_identify_consumer
-from ..client import ApiDashClient
+from ..client import PeekApiClient
 
 
-class ApiDashWSGI:
+class PeekApiWSGI:
     """WSGI middleware that tracks HTTP request analytics.
 
     Usage (Flask)::
 
-        from apidash import ApiDashClient
-        from apidash.middleware import ApiDashWSGI
+        from peekapi import PeekApiClient
+        from peekapi.middleware import PeekApiWSGI
 
-        client = ApiDashClient({"api_key": "...", "endpoint": "..."})
-        app.wsgi_app = ApiDashWSGI(app.wsgi_app, client=client)
+        client = PeekApiClient({"api_key": "...", "endpoint": "..."})
+        app.wsgi_app = PeekApiWSGI(app.wsgi_app, client=client)
     """
 
-    def __init__(self, app: Any, client: ApiDashClient | None = None) -> None:
+    def __init__(self, app: Any, client: PeekApiClient | None = None) -> None:
         self.app = app
         self.client = client
 
@@ -48,11 +48,20 @@ class ApiDashWSGI:
             try:
                 elapsed_ms = (time.perf_counter() - start) * 1000
                 headers = _extract_headers(environ)
-                consumer_id = default_identify_consumer(headers)
+                if self.client.identify_consumer:
+                    consumer_id = self.client.identify_consumer(headers)
+                else:
+                    consumer_id = default_identify_consumer(headers)
+                path = environ.get("PATH_INFO", "/")
+                if self.client.collect_query_string:
+                    qs = environ.get("QUERY_STRING", "")
+                    if qs:
+                        sorted_qs = "&".join(sorted(qs.split("&")))
+                        path = f"{path}?{sorted_qs}"
                 self.client.track(
                     {
                         "method": environ.get("REQUEST_METHOD", "GET"),
-                        "path": environ.get("PATH_INFO", "/"),
+                        "path": path,
                         "status_code": 500,
                         "response_time_ms": round(elapsed_ms, 2),
                         "request_size": _get_content_length(environ),
@@ -71,7 +80,7 @@ class _ResponseWrapper:
     def __init__(
         self,
         response: Any,
-        middleware: ApiDashWSGI,
+        middleware: PeekApiWSGI,
         environ: dict,
         start: float,
         status_code: int,
@@ -103,11 +112,20 @@ class _ResponseWrapper:
                 return
             elapsed_ms = (time.perf_counter() - self._start) * 1000
             headers = _extract_headers(self._environ)
-            consumer_id = default_identify_consumer(headers)
+            if client.identify_consumer:
+                consumer_id = client.identify_consumer(headers)
+            else:
+                consumer_id = default_identify_consumer(headers)
+            path = self._environ.get("PATH_INFO", "/")
+            if client.collect_query_string:
+                qs = self._environ.get("QUERY_STRING", "")
+                if qs:
+                    sorted_qs = "&".join(sorted(qs.split("&")))
+                    path = f"{path}?{sorted_qs}"
             client.track(
                 {
                     "method": self._environ.get("REQUEST_METHOD", "GET"),
-                    "path": self._environ.get("PATH_INFO", "/"),
+                    "path": path,
                     "status_code": self._status_code,
                     "response_time_ms": round(elapsed_ms, 2),
                     "request_size": _get_content_length(self._environ),

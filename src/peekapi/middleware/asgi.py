@@ -7,22 +7,22 @@ import time
 from typing import Any
 
 from .._consumer import default_identify_consumer
-from ..client import ApiDashClient
+from ..client import PeekApiClient
 
 
-class ApiDashASGI:
+class PeekApiASGI:
     """ASGI middleware that tracks HTTP request analytics.
 
     Usage (FastAPI / Starlette)::
 
-        from apidash import ApiDashClient
-        from apidash.middleware import ApiDashASGI
+        from peekapi import PeekApiClient
+        from peekapi.middleware import PeekApiASGI
 
-        client = ApiDashClient({"api_key": "...", "endpoint": "..."})
-        app.add_middleware(ApiDashASGI, client=client)
+        client = PeekApiClient({"api_key": "...", "endpoint": "..."})
+        app.add_middleware(PeekApiASGI, client=client)
     """
 
-    def __init__(self, app: Any, client: ApiDashClient | None = None, **kwargs: Any) -> None:
+    def __init__(self, app: Any, client: PeekApiClient | None = None, **kwargs: Any) -> None:
         self.app = app
         self.client = client
 
@@ -55,10 +55,18 @@ class ApiDashASGI:
                 for name, value in scope.get("headers", []):
                     headers[name.decode("latin-1").lower()] = value.decode("latin-1")
 
-                consumer_id = default_identify_consumer(headers)
+                if self.client.identify_consumer:
+                    consumer_id = self.client.identify_consumer(headers)
+                else:
+                    consumer_id = default_identify_consumer(headers)
 
                 method = scope.get("method", "GET")
                 path = scope.get("path", "/")
+                if self.client.collect_query_string:
+                    qs = scope.get("query_string", b"").decode("latin-1")
+                    if qs:
+                        sorted_qs = "&".join(sorted(qs.split("&")))
+                        path = f"{path}?{sorted_qs}"
 
                 # Request size from content-length header
                 request_size = 0

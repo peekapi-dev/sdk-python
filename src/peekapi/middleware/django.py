@@ -1,4 +1,4 @@
-"""Django middleware — reads config from settings.APIDASH or accepts a client."""
+"""Django middleware — reads config from settings.PEEKAPI or accepts a client."""
 
 from __future__ import annotations
 
@@ -7,38 +7,38 @@ import time
 from typing import Any
 
 from .._consumer import default_identify_consumer
-from ..client import ApiDashClient
+from ..client import PeekApiClient
 
 
-class ApiDashMiddleware:
+class PeekApiMiddleware:
     """Django middleware that tracks HTTP request analytics.
 
     Usage (settings.py)::
 
-        APIDASH = {
+        PEEKAPI = {
             "api_key": "your-api-key",
             "endpoint": "https://your-project.supabase.co/functions/v1/ingest",
         }
 
         MIDDLEWARE = [
-            "apidash.middleware.django.ApiDashMiddleware",
+            "peekapi.middleware.django.PeekApiMiddleware",
             # ...
         ]
     """
 
-    _client: ApiDashClient | None = None
+    _client: PeekApiClient | None = None
 
     def __init__(self, get_response: Any) -> None:
         self.get_response = get_response
 
         # Initialize client on first instantiation
-        if ApiDashMiddleware._client is None:
+        if PeekApiMiddleware._client is None:
             try:
                 from django.conf import settings  # type: ignore[import-untyped]
 
-                config = getattr(settings, "APIDASH", None)
+                config = getattr(settings, "PEEKAPI", None)
                 if config and isinstance(config, dict):
-                    ApiDashMiddleware._client = ApiDashClient(config)
+                    PeekApiMiddleware._client = PeekApiClient(config)
             except Exception:
                 pass  # Django not available or bad config — passthrough
 
@@ -60,7 +60,10 @@ class ApiDashMiddleware:
                     header_name = key[5:].lower().replace("_", "-")
                     headers[header_name] = value
 
-            consumer_id = default_identify_consumer(headers)
+            if self._client.identify_consumer:
+                consumer_id = self._client.identify_consumer(headers)
+            else:
+                consumer_id = default_identify_consumer(headers)
 
             # Response size from content
             response_size = 0
@@ -74,10 +77,17 @@ class ApiDashMiddleware:
                 with contextlib.suppress(ValueError, TypeError):
                     request_size = int(cl)
 
+            path = request.path
+            if self._client.collect_query_string:
+                qs = request.META.get("QUERY_STRING", "")
+                if qs:
+                    sorted_qs = "&".join(sorted(qs.split("&")))
+                    path = f"{path}?{sorted_qs}"
+
             self._client.track(
                 {
                     "method": request.method,
-                    "path": request.path,
+                    "path": path,
                     "status_code": response.status_code,
                     "response_time_ms": round(elapsed_ms, 2),
                     "request_size": request_size,

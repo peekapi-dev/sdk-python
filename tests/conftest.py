@@ -10,13 +10,13 @@ from typing import Any
 
 import pytest
 
-from apidash import ApiDashClient
+from peekapi import PeekApiClient
 
 
 @pytest.fixture
 def tmp_storage_path(tmp_path: Any) -> str:
     """Unique storage path per test — prevents flaky disk tests."""
-    return str(tmp_path / "apidash-events.jsonl")
+    return str(tmp_path / "peekapi-events.jsonl")
 
 
 class IngestHandler(BaseHTTPRequestHandler):
@@ -29,7 +29,8 @@ class IngestHandler(BaseHTTPRequestHandler):
         body = self.rfile.read(length)
         events = json.loads(body)
         api_key = self.headers.get("x-api-key", "")
-        self.server.payloads.append({"events": events, "api_key": api_key})  # type: ignore[attr-defined]
+        sdk_header = self.headers.get("x-peekapi-sdk", "")
+        self.server.payloads.append({"events": events, "api_key": api_key, "sdk": sdk_header})  # type: ignore[attr-defined]
 
         status = self.server.response_status  # type: ignore[attr-defined]
         self.send_response(status)
@@ -68,9 +69,9 @@ def ingest_server():
 def make_client(ingest_server, tmp_storage_path):
     """Factory that creates a client pre-configured for test server."""
     server, url = ingest_server
-    clients: list[ApiDashClient] = []
+    clients: list[PeekApiClient] = []
 
-    def _make(**overrides: Any) -> ApiDashClient:
+    def _make(**overrides: Any) -> PeekApiClient:
         opts = {
             "api_key": "test-key",
             "endpoint": url,
@@ -80,7 +81,7 @@ def make_client(ingest_server, tmp_storage_path):
             "debug": True,
             **overrides,
         }
-        c = ApiDashClient(opts)
+        c = PeekApiClient(opts)
         clients.append(c)
         return c
 

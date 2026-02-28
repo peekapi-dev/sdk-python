@@ -1,35 +1,41 @@
 [build-system]
 requires = ["hatchling"]
-build-backend = "hatchling.backends"
+build-backend = "hatchling.build"
 
 [project]
-name = "apidash"
-version = "0.1.0"
-description = "Zero-dependency Python SDK for API Usage Dashboard"
+name = "peekapi"
+dynamic = ["version"]
+description = "Zero-dependency Python SDK for PeekAPI"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 keywords = ["api", "analytics", "middleware", "dashboard"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
-    "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
-    "Topic :: Software Development :: Libraries :: Python Modules",
-    "Framework :: Django",
-    "Framework :: FastAPI",
-    "Framework :: Flask",
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Framework :: Django",
+  "Framework :: FastAPI",
+  "Framework :: Flask",
 ]
 
 [project.urls]
-Homepage = "https://github.com/api-usage-dashboard/sdk-python"
+Homepage = "https://github.com/peekapi-dev/sdk-python"
+
+[tool.hatch.version]
+path = "src/peekapi/_version.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/apidash"]
+packages = ["src/peekapi"]
+
+[dependency-groups]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.25", "ruff>=0.11"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

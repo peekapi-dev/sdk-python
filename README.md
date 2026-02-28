@@ -1,11 +1,14 @@
-# API Usage Dashboard — Python SDK
+# PeekAPI — Python SDK
 
-Zero-dependency Python SDK for [API Usage Dashboard](https://github.com/api-usage-dashboard). Tracks API request analytics with built-in middleware for ASGI (FastAPI, Starlette, Litestar), WSGI (Flask, Bottle), and Django.
+[![PyPI](https://img.shields.io/pypi/v/peekapi)](https://pypi.org/project/peekapi/)
+[![license](https://img.shields.io/pypi/l/peekapi)](./LICENSE)
+
+Zero-dependency Python SDK for [PeekAPI](https://peekapi.dev). Built-in middleware for ASGI (FastAPI, Starlette, Litestar), WSGI (Flask, Bottle), and Django.
 
 ## Install
 
 ```bash
-pip install apidash
+pip install peekapi
 ```
 
 ## Quick Start
@@ -14,58 +17,48 @@ pip install apidash
 
 ```python
 from fastapi import FastAPI
-from apidash import ApiDashClient
-from apidash.middleware import ApiDashASGI
+from peekapi import PeekApiClient
+from peekapi.middleware import PeekApiASGI
 
-client = ApiDashClient({
-    "api_key": "your-api-key",
-    "endpoint": "https://your-project.supabase.co/functions/v1/ingest",
-})
+client = PeekApiClient({"api_key": "ak_live_xxx"})
 
 app = FastAPI()
-app.add_middleware(ApiDashASGI, client=client)
+app.add_middleware(PeekApiASGI, client=client)
 ```
 
 ### Flask (WSGI)
 
 ```python
 from flask import Flask
-from apidash import ApiDashClient
-from apidash.middleware import ApiDashWSGI
+from peekapi import PeekApiClient
+from peekapi.middleware import PeekApiWSGI
 
-client = ApiDashClient({
-    "api_key": "your-api-key",
-    "endpoint": "https://your-project.supabase.co/functions/v1/ingest",
-})
+client = PeekApiClient({"api_key": "ak_live_xxx"})
 
 app = Flask(__name__)
-app.wsgi_app = ApiDashWSGI(app.wsgi_app, client=client)
+app.wsgi_app = PeekApiWSGI(app.wsgi_app, client=client)
 ```
 
 ### Django
 
 ```python
 # settings.py
-APIDASH = {
-    "api_key": "your-api-key",
-    "endpoint": "https://your-project.supabase.co/functions/v1/ingest",
+PEEKAPI = {
+    "api_key": "ak_live_xxx",
 }
 
 MIDDLEWARE = [
-    "apidash.middleware.django.ApiDashMiddleware",
-    # ...
+    "peekapi.middleware.django.PeekApiMiddleware",
+    # ... other middleware
 ]
 ```
 
 ### Standalone Client
 
 ```python
-from apidash import ApiDashClient
+from peekapi import PeekApiClient
 
-client = ApiDashClient({
-    "api_key": "your-api-key",
-    "endpoint": "https://your-project.supabase.co/functions/v1/ingest",
-})
+client = PeekApiClient({"api_key": "ak_live_xxx"})
 
 client.track({
     "method": "GET",
@@ -78,6 +71,49 @@ client.track({
 client.shutdown()
 ```
 
+## Configuration
+
+| Option | Default | Description |
+|---|---|---|
+| `api_key` | required | Your PeekAPI key |
+| `endpoint` | PeekAPI cloud | Ingestion endpoint URL |
+| `flush_interval` | `10.0` | Seconds between automatic flushes |
+| `batch_size` | `100` | Events per HTTP POST (triggers flush) |
+| `max_buffer_size` | `10000` | Max events held in memory |
+| `max_storage_bytes` | `5242880` | Max disk fallback file size (5MB) |
+| `max_event_bytes` | `65536` | Per-event size limit (64KB) |
+| `storage_path` | auto | Custom path for JSONL persistence file |
+| `debug` | `False` | Enable debug logging |
+| `on_error` | `None` | Callback `(Exception) -> None` for flush errors |
+
+## How It Works
+
+1. Middleware intercepts every request/response
+2. Captures method, path, status code, response time, request/response sizes, consumer ID
+3. Events are buffered in memory and flushed in batches on a daemon thread
+4. On network failure: exponential backoff with jitter, up to 5 retries
+5. After max retries: events are persisted to a JSONL file on disk
+6. On next startup: persisted events are recovered and re-sent
+7. On SIGTERM/SIGINT: remaining buffer is flushed or persisted to disk
+
+## Consumer Identification
+
+By default, consumers are identified by:
+
+1. `X-API-Key` header — stored as-is
+2. `Authorization` header — hashed with SHA-256 (stored as `hash_<hex>`)
+
+Override with the `identify_consumer` option to use any header or request property:
+
+```python
+client = PeekApiClient({
+    "api_key": "...",
+    "identify_consumer": lambda headers: headers.get("x-tenant-id"),
+})
+```
+
+The callback receives a `dict[str, str]` of lowercase header names and should return a consumer ID string or `None`.
+
 ## Features
 
 - **Zero runtime dependencies** — uses only Python stdlib
@@ -88,22 +124,6 @@ client.shutdown()
 - **Input sanitization** — path (2048), method (16), consumer_id (256) truncation
 - **Per-event size limit** — strips metadata first, drops if still too large (default 64KB)
 - **Graceful shutdown** — signal handlers (SIGTERM/SIGINT) with disk persistence
-- **Consumer identification** — auto-extracts from `x-api-key` or `Authorization` header
-
-## Configuration
-
-| Option | Default | Description |
-|---|---|---|
-| `api_key` | required | Your API key |
-| `endpoint` | required | Ingestion endpoint URL |
-| `flush_interval` | `10.0` | Seconds between flushes |
-| `batch_size` | `100` | Max events per flush |
-| `max_buffer_size` | `10000` | Max in-memory events |
-| `max_storage_bytes` | `5242880` | Max disk file size (5MB) |
-| `max_event_bytes` | `65536` | Per-event size limit (64KB) |
-| `debug` | `False` | Enable debug logging |
-| `on_error` | `None` | Error callback `(Exception) -> None` |
-| `storage_path` | auto | Custom disk persistence path |
 
 ## Requirements
 

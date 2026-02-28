@@ -22,8 +22,8 @@ class RequestEvent:
 class Options:
     api_key: str
     endpoint: str = ""
-    flush_interval: float = 10.0
-    batch_size: int = 100
+    flush_interval: float = 15.0
+    batch_size: int = 250
     max_buffer_size: int = 10_000
     max_storage_bytes: int = 5_242_880  # 5 MB
     max_event_bytes: int = 65_536  # 64 KB
@@ -31,4 +31,6 @@ class Options:
     identify_consumer: Callable[..., str | None] | None = None
     storage_path: str = ""
     on_error: Callable[[Exception], None] | None = None
+    # NOTE: increases DB usage — each unique path+query creates a separate endpoint row.
+    collect_query_string: bool = False
     metadata: dict[str, Any] = field(default_factory=dict)

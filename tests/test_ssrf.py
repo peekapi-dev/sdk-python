@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from apidash._ssrf import is_private_ip, validate_endpoint
+from peekapi._ssrf import is_private_ip, validate_endpoint
 
 
 class TestIsPrivateIp:

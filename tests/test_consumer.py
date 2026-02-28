@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from apidash._consumer import default_identify_consumer, hash_consumer_id
+from peekapi._consumer import default_identify_consumer, hash_consumer_id
 
 
 class TestHashConsumerId:

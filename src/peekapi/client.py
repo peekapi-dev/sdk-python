@@ -19,13 +19,15 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ._ssrf import validate_endpoint
+from ._version import __version__ as SDK_VERSION
 from .types import Options, RequestEvent
 
-logger = logging.getLogger("apidash")
+logger = logging.getLogger("peekapi")
 
 # --- Constants ---
-DEFAULT_FLUSH_INTERVAL = 10.0  # seconds
-DEFAULT_BATCH_SIZE = 100
+DEFAULT_ENDPOINT = "https://ingest.peekapi.dev/v1/events"
+DEFAULT_FLUSH_INTERVAL = 15.0  # seconds
+DEFAULT_BATCH_SIZE = 250
 DEFAULT_MAX_BUFFER_SIZE = 10_000
 DEFAULT_MAX_STORAGE_BYTES = 5_242_880  # 5 MB
 DEFAULT_MAX_EVENT_BYTES = 65_536  # 64 KB
@@ -35,6 +37,7 @@ MAX_CONSUMER_ID_LENGTH = 256
 MAX_CONSECUTIVE_FAILURES = 5
 BASE_BACKOFF_S = 1.0
 SEND_TIMEOUT_S = 5
+DISK_RECOVERY_INTERVAL_S = 60
 RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 
 _CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f]")
@@ -48,7 +51,7 @@ class _NonRetryableError(Exception):
     """Marks a send failure as non-retryable (4xx)."""
 
 
-class ApiDashClient:
+class PeekApiClient:
     """Buffered analytics client — zero runtime dependencies.
 
     Events are accumulated in memory and flushed to the ingestion endpoint
@@ -70,9 +73,7 @@ class ApiDashClient:
         if _CONTROL_CHAR_RE.search(options.api_key):
             raise ValueError("api_key contains invalid control characters")
 
-        endpoint = options.endpoint
-        if not endpoint:
-            raise ValueError("endpoint is required")
+        endpoint = options.endpoint or DEFAULT_ENDPOINT
         self._endpoint = validate_endpoint(endpoint)
 
         # --- Apply defaults ---
@@ -83,14 +84,16 @@ class ApiDashClient:
         self._max_storage_bytes = options.max_storage_bytes or DEFAULT_MAX_STORAGE_BYTES
         self._max_event_bytes = options.max_event_bytes or DEFAULT_MAX_EVENT_BYTES
         self._debug = options.debug
+        self._identify_consumer = options.identify_consumer
         self._on_error = options.on_error
+        self.collect_query_string = options.collect_query_string
 
         # --- Storage path ---
         if options.storage_path:
             self._storage_path = options.storage_path
         else:
             h = hashlib.sha256(self._endpoint.encode()).hexdigest()[:12]
-            self._storage_path = os.path.join(tempfile.gettempdir(), f"apidash-events-{h}.jsonl")
+            self._storage_path = os.path.join(tempfile.gettempdir(), f"peekapi-events-{h}.jsonl")
 
         self._recovery_path: str | None = None
 
@@ -101,6 +104,7 @@ class ApiDashClient:
         self._consecutive_failures = 0
         self._backoff_until = 0.0
         self._shutdown = False
+        self._last_disk_recovery = time.monotonic()
 
         # --- Load persisted events ---
         self._load_from_disk()
@@ -108,7 +112,7 @@ class ApiDashClient:
         # --- Background flush thread ---
         self._done = threading.Event()
         self._wake = threading.Event()
-        self._thread = threading.Thread(target=self._run, daemon=True, name="apidash-flush")
+        self._thread = threading.Thread(target=self._run, daemon=True, name="peekapi-flush")
         self._thread.start()
 
         # --- Signal handlers ---
@@ -127,13 +131,18 @@ class ApiDashClient:
     # Public API
     # ------------------------------------------------------------------
 
+    @property
+    def identify_consumer(self) -> Any:
+        """User-provided callback for custom consumer identification."""
+        return self._identify_consumer
+
     def track(self, event: RequestEvent | dict[str, Any]) -> None:
         """Buffer an analytics event.  Never raises."""
         try:
             self._track_inner(event)
         except Exception:
             if self._debug:
-                logger.exception("apidash: track() error")
+                logger.exception("peekapi: track() error")
 
     def flush(self) -> None:
         """Flush buffered events synchronously (blocks until complete)."""
@@ -196,7 +205,7 @@ class ApiDashClient:
             raw = json.dumps(d, separators=(",", ":"))
             if len(raw.encode()) > self._max_event_bytes:
                 if self._debug:
-                    logger.warning("apidash: event too large, dropping (%d bytes)", len(raw))
+                    logger.warning("peekapi: event too large, dropping (%d bytes)", len(raw))
                 return
 
         with self._lock:
@@ -236,14 +245,14 @@ class ApiDashClient:
                 self._in_flight = False
             self._cleanup_recovery_file()
             if self._debug:
-                logger.debug("apidash: flushed %d events", len(batch))
+                logger.debug("peekapi: flushed %d events", len(batch))
         except _NonRetryableError as exc:
             with self._lock:
                 self._in_flight = False
             self._persist_to_disk(batch)
             self._call_on_error(exc)
             if self._debug:
-                logger.warning("apidash: non-retryable error, persisted to disk: %s", exc)
+                logger.warning("peekapi: non-retryable error, persisted to disk: %s", exc)
         except Exception as exc:
             with self._lock:
                 self._consecutive_failures += 1
@@ -265,7 +274,7 @@ class ApiDashClient:
 
             self._call_on_error(exc)
             if self._debug:
-                logger.warning("apidash: flush failed (attempt %d): %s", failures, exc)
+                logger.warning("peekapi: flush failed (attempt %d): %s", failures, exc)
 
     def _send(self, events: list[dict[str, Any]]) -> None:
         body = json.dumps(events, separators=(",", ":")).encode()
@@ -275,6 +284,7 @@ class ApiDashClient:
             headers={
                 "Content-Type": "application/json",
                 "x-api-key": self._api_key,
+                "x-peekapi-sdk": f"python/{SDK_VERSION}",
             },
             method="POST",
         )
@@ -307,6 +317,11 @@ class ApiDashClient:
             batch = self._drain_batch()
             if batch:
                 self._do_flush(batch)
+            # Periodically recover persisted events from disk
+            now = time.monotonic()
+            if now - self._last_disk_recovery >= DISK_RECOVERY_INTERVAL_S:
+                self._last_disk_recovery = now
+                self._load_from_disk()
 
     # ------------------------------------------------------------------
     # Disk persistence
@@ -322,7 +337,7 @@ class ApiDashClient:
                 size = 0
             if size >= self._max_storage_bytes:
                 if self._debug:
-                    logger.warning("apidash: storage file full, dropping %d events", len(events))
+                    logger.warning("peekapi: storage file full, dropping %d events", len(events))
                 return
 
             line = json.dumps(events, separators=(",", ":")) + "\n"
@@ -333,7 +348,7 @@ class ApiDashClient:
                 os.close(fd)
         except Exception:
             if self._debug:
-                logger.exception("apidash: disk persist failed")
+                logger.exception("peekapi: disk persist failed")
 
     def _load_from_disk(self) -> None:
         # Try recovery file first (crash-before-flush leftover)
@@ -361,9 +376,11 @@ class ApiDashClient:
                         break
 
                 if events:
-                    self._buffer.extend(events[: self._max_buffer_size])
+                    with self._lock:
+                        space = self._max_buffer_size - len(self._buffer)
+                        self._buffer.extend(events[:space])
                     if self._debug:
-                        logger.debug("apidash: loaded %d events from disk", len(events))
+                        logger.debug("peekapi: loaded %d events from disk", len(events))
 
                 # Rename to .recovering so we don't double-load
                 if path == self._storage_path:
@@ -379,7 +396,7 @@ class ApiDashClient:
                 break  # loaded from one file, done
             except Exception:
                 if self._debug:
-                    logger.exception("apidash: disk load failed from %s", path)
+                    logger.exception("peekapi: disk load failed from %s", path)
 
     def _cleanup_recovery_file(self) -> None:
         if self._recovery_path:

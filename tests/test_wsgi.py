@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from apidash.middleware.wsgi import ApiDashWSGI
+from peekapi.middleware.wsgi import PeekApiWSGI
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -67,7 +67,7 @@ class TestWsgiMiddleware:
     def test_captures_status_and_path(self, make_client):
         _make, server, _ = make_client
         client = _make()
-        app = ApiDashWSGI(simple_wsgi_app, client=client)
+        app = PeekApiWSGI(simple_wsgi_app, client=client)
 
         environ = make_environ(method="POST", path="/orders")
         consume_response(app, environ)
@@ -82,7 +82,7 @@ class TestWsgiMiddleware:
     def test_captures_response_size(self, make_client):
         _make, server, _ = make_client
         client = _make()
-        app = ApiDashWSGI(simple_wsgi_app, client=client)
+        app = PeekApiWSGI(simple_wsgi_app, client=client)
 
         consume_response(app, make_environ())
         client.flush()
@@ -93,7 +93,7 @@ class TestWsgiMiddleware:
     def test_captures_consumer_from_headers(self, make_client):
         _make, server, _ = make_client
         client = _make()
-        app = ApiDashWSGI(simple_wsgi_app, client=client)
+        app = PeekApiWSGI(simple_wsgi_app, client=client)
 
         environ = make_environ(headers={"x-api-key": "wsgi-client-key"})
         consume_response(app, environ)
@@ -102,8 +102,20 @@ class TestWsgiMiddleware:
         event = server.payloads[0]["events"][0]
         assert event["consumer_id"] == "wsgi-client-key"
 
+    def test_custom_identify_consumer(self, make_client):
+        _make, server, _ = make_client
+        client = _make(identify_consumer=lambda headers: headers.get("x-tenant-id"))
+        app = PeekApiWSGI(simple_wsgi_app, client=client)
+
+        environ = make_environ(headers={"x-tenant-id": "tenant-42", "x-api-key": "ignored"})
+        consume_response(app, environ)
+        client.flush()
+
+        event = server.payloads[0]["events"][0]
+        assert event["consumer_id"] == "tenant-42"
+
     def test_nil_client_passthrough(self):
-        app = ApiDashWSGI(simple_wsgi_app, client=None)
+        app = PeekApiWSGI(simple_wsgi_app, client=None)
         status, body = consume_response(app, make_environ())
         assert status == "200 OK"
         assert body == [b"Hello, World!"]
@@ -111,7 +123,7 @@ class TestWsgiMiddleware:
     def test_error_propagation(self, make_client):
         _make, _, _ = make_client
         client = _make()
-        app = ApiDashWSGI(error_wsgi_app, client=client)
+        app = PeekApiWSGI(error_wsgi_app, client=client)
 
         with pytest.raises(RuntimeError, match="app error"):
             consume_response(app, make_environ())
@@ -119,7 +131,7 @@ class TestWsgiMiddleware:
     def test_response_time_measured(self, make_client):
         _make, server, _ = make_client
         client = _make()
-        app = ApiDashWSGI(simple_wsgi_app, client=client)
+        app = PeekApiWSGI(simple_wsgi_app, client=client)
 
         consume_response(app, make_environ())
         client.flush()
@@ -130,7 +142,7 @@ class TestWsgiMiddleware:
     def test_request_size_from_content_length(self, make_client):
         _make, server, _ = make_client
         client = _make()
-        app = ApiDashWSGI(simple_wsgi_app, client=client)
+        app = PeekApiWSGI(simple_wsgi_app, client=client)
 
         environ = make_environ(content_length=128)
         consume_response(app, environ)
@@ -138,3 +150,40 @@ class TestWsgiMiddleware:
 
         event = server.payloads[0]["events"][0]
         assert event["request_size"] == 128
+
+    def test_collect_query_string_disabled_by_default(self, make_client):
+        _make, server, _ = make_client
+        client = _make()
+        app = PeekApiWSGI(simple_wsgi_app, client=client)
+
+        environ = make_environ(path="/search")
+        environ["QUERY_STRING"] = "z=3&a=1"
+        consume_response(app, environ)
+        client.flush()
+
+        event = server.payloads[0]["events"][0]
+        assert event["path"] == "/search"
+
+    def test_collect_query_string_enabled(self, make_client):
+        _make, server, _ = make_client
+        client = _make(collect_query_string=True)
+        app = PeekApiWSGI(simple_wsgi_app, client=client)
+
+        environ = make_environ(path="/search")
+        environ["QUERY_STRING"] = "z=3&a=1"
+        consume_response(app, environ)
+        client.flush()
+
+        event = server.payloads[0]["events"][0]
+        assert event["path"] == "/search?a=1&z=3"
+
+    def test_collect_query_string_no_qs(self, make_client):
+        _make, server, _ = make_client
+        client = _make(collect_query_string=True)
+        app = PeekApiWSGI(simple_wsgi_app, client=client)
+
+        consume_response(app, make_environ(path="/users"))
+        client.flush()
+
+        event = server.payloads[0]["events"][0]
+        assert event["path"] == "/users"

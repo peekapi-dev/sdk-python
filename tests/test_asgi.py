@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from apidash.middleware.asgi import ApiDashASGI
+from peekapi.middleware.asgi import PeekApiASGI
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -68,7 +68,7 @@ class TestAsgiMiddleware:
     async def test_captures_status_and_path(self, make_client):
         _make, server, _ = make_client
         client = _make()
-        app = ApiDashASGI(simple_asgi_app, client=client)
+        app = PeekApiASGI(simple_asgi_app, client=client)
 
         scope = make_scope(method="POST", path="/users")
         await collect_response(app, scope)
@@ -84,7 +84,7 @@ class TestAsgiMiddleware:
     async def test_captures_response_size(self, make_client):
         _make, server, _ = make_client
         client = _make()
-        app = ApiDashASGI(simple_asgi_app, client=client)
+        app = PeekApiASGI(simple_asgi_app, client=client)
 
         await collect_response(app, make_scope())
         client.flush()
@@ -96,7 +96,7 @@ class TestAsgiMiddleware:
     async def test_captures_consumer_from_headers(self, make_client):
         _make, server, _ = make_client
         client = _make()
-        app = ApiDashASGI(simple_asgi_app, client=client)
+        app = PeekApiASGI(simple_asgi_app, client=client)
 
         scope = make_scope(headers=[(b"x-api-key", b"client-key-123")])
         await collect_response(app, scope)
@@ -107,7 +107,7 @@ class TestAsgiMiddleware:
 
     @pytest.mark.asyncio
     async def test_nil_client_passthrough(self):
-        app = ApiDashASGI(simple_asgi_app, client=None)
+        app = PeekApiASGI(simple_asgi_app, client=None)
         sent = await collect_response(app, make_scope())
         assert any(m.get("status") == 200 for m in sent)
 
@@ -115,7 +115,7 @@ class TestAsgiMiddleware:
     async def test_error_propagation(self, make_client):
         _make, _, _ = make_client
         client = _make()
-        app = ApiDashASGI(error_asgi_app, client=client)
+        app = PeekApiASGI(error_asgi_app, client=client)
 
         with pytest.raises(RuntimeError, match="app error"):
             await collect_response(app, make_scope())
@@ -131,7 +131,7 @@ class TestAsgiMiddleware:
             nonlocal called
             called = True
 
-        app = ApiDashASGI(websocket_app, client=client)
+        app = PeekApiASGI(websocket_app, client=client)
         scope = {"type": "websocket", "path": "/ws"}
         await app(scope, None, None)
         assert called
@@ -141,7 +141,7 @@ class TestAsgiMiddleware:
     async def test_response_time_measured(self, make_client):
         _make, server, _ = make_client
         client = _make()
-        app = ApiDashASGI(simple_asgi_app, client=client)
+        app = PeekApiASGI(simple_asgi_app, client=client)
 
         await collect_response(app, make_scope())
         client.flush()
@@ -150,10 +150,23 @@ class TestAsgiMiddleware:
         assert event["response_time_ms"] >= 0
 
     @pytest.mark.asyncio
+    async def test_custom_identify_consumer(self, make_client):
+        _make, server, _ = make_client
+        client = _make(identify_consumer=lambda headers: headers.get("x-tenant-id"))
+        app = PeekApiASGI(simple_asgi_app, client=client)
+
+        scope = make_scope(headers=[(b"x-tenant-id", b"tenant-42"), (b"x-api-key", b"ignored")])
+        await collect_response(app, scope)
+        client.flush()
+
+        event = server.payloads[0]["events"][0]
+        assert event["consumer_id"] == "tenant-42"
+
+    @pytest.mark.asyncio
     async def test_request_size_from_content_length(self, make_client):
         _make, server, _ = make_client
         client = _make()
-        app = ApiDashASGI(simple_asgi_app, client=client)
+        app = PeekApiASGI(simple_asgi_app, client=client)
 
         scope = make_scope(headers=[(b"content-length", b"42")])
         await collect_response(app, scope)
@@ -161,3 +174,58 @@ class TestAsgiMiddleware:
 
         event = server.payloads[0]["events"][0]
         assert event["request_size"] == 42
+
+    @pytest.mark.asyncio
+    async def test_collect_query_string_disabled_by_default(self, make_client):
+        _make, server, _ = make_client
+        client = _make()
+        app = PeekApiASGI(simple_asgi_app, client=client)
+
+        scope = make_scope(path="/search")
+        scope["query_string"] = b"z=3&a=1"
+        await collect_response(app, scope)
+        client.flush()
+
+        event = server.payloads[0]["events"][0]
+        assert event["path"] == "/search"
+
+    @pytest.mark.asyncio
+    async def test_collect_query_string_enabled(self, make_client):
+        _make, server, _ = make_client
+        client = _make(collect_query_string=True)
+        app = PeekApiASGI(simple_asgi_app, client=client)
+
+        scope = make_scope(path="/search")
+        scope["query_string"] = b"z=3&a=1"
+        await collect_response(app, scope)
+        client.flush()
+
+        event = server.payloads[0]["events"][0]
+        assert event["path"] == "/search?a=1&z=3"
+
+    @pytest.mark.asyncio
+    async def test_collect_query_string_sorts_params(self, make_client):
+        _make, server, _ = make_client
+        client = _make(collect_query_string=True)
+        app = PeekApiASGI(simple_asgi_app, client=client)
+
+        scope = make_scope(path="/users")
+        scope["query_string"] = b"role=admin&name=alice"
+        await collect_response(app, scope)
+        client.flush()
+
+        event = server.payloads[0]["events"][0]
+        assert event["path"] == "/users?name=alice&role=admin"
+
+    @pytest.mark.asyncio
+    async def test_collect_query_string_no_qs(self, make_client):
+        _make, server, _ = make_client
+        client = _make(collect_query_string=True)
+        app = PeekApiASGI(simple_asgi_app, client=client)
+
+        scope = make_scope(path="/users")
+        await collect_response(app, scope)
+        client.flush()
+
+        event = server.payloads[0]["events"][0]
+        assert event["path"] == "/users"

@@ -388,7 +388,9 @@ class TestDiskPersistence:
         client = _make()
 
         # Simulate events persisted to disk mid-process
-        events = [{"method": "GET", "path": "/runtime-recover", "status_code": 200, "response_time_ms": 1}]
+        events = [
+            {"method": "GET", "path": "/runtime-recover", "status_code": 200, "response_time_ms": 1}
+        ]
         with open(tmp_storage_path, "w") as f:
             f.write(json.dumps(events) + "\n")
 

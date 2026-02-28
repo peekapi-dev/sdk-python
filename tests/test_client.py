@@ -381,7 +381,6 @@ class TestDiskPersistence:
         recovery = tmp_storage_path + ".recovering"
         assert client._recovery_path == recovery or not os.path.exists(tmp_storage_path)
 
-
     def test_runtime_disk_recovery(self, make_client, tmp_storage_path):
         """Recovers persisted events during same process (not just startup)."""
         _make, _server, _ = make_client

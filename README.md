@@ -2,6 +2,7 @@
 
 [![PyPI](https://img.shields.io/pypi/v/peekapi)](https://pypi.org/project/peekapi/)
 [![license](https://img.shields.io/pypi/l/peekapi)](./LICENSE)
+[![CI](https://github.com/peekapi-dev/sdk-python/actions/workflows/ci.yml/badge.svg)](https://github.com/peekapi-dev/sdk-python/actions/workflows/ci.yml)
 
 Zero-dependency Python SDK for [PeekAPI](https://peekapi.dev). Built-in middleware for ASGI (FastAPI, Starlette, Litestar), WSGI (Flask, Bottle), and Django.
 
@@ -128,6 +129,14 @@ The callback receives a `dict[str, str]` of lowercase header names and should re
 ## Requirements
 
 - Python >= 3.10
+
+## Contributing
+
+1. Fork & clone the repo
+2. Install dev dependencies — `uv sync --no-install-project`
+3. Run tests — `uv run pytest -v`
+4. Lint & format — `uv run ruff check src/ tests/` / `uv run ruff format src/ tests/`
+5. Submit a PR
 
 ## License
 

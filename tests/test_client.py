@@ -31,7 +31,7 @@ class TestConstructor:
 
     def test_missing_endpoint_uses_default(self):
         client = PeekApiClient({"api_key": "test", "endpoint": ""})
-        assert "supabase.co" in client._endpoint
+        assert "ingest.peekapi.dev" in client._endpoint
         client.shutdown()
 
     def test_http_non_localhost_rejected(self):

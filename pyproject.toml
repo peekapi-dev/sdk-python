@@ -27,6 +27,7 @@ classifiers = [
 
 [project.urls]
 Homepage = "https://github.com/peekapi-dev/sdk-python"
+Issues = "https://github.com/peekapi-dev/community/issues"
 
 [tool.hatch.version]
 path = "src/peekapi/_version.py"

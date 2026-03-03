@@ -132,6 +132,8 @@ The callback receives a `dict[str, str]` of lowercase header names and should re
 
 ## Contributing
 
+Bug reports and feature requests: [peekapi-dev/community](https://github.com/peekapi-dev/community/issues)
+
 1. Fork & clone the repo
 2. Install dev dependencies — `uv sync --no-install-project`
 3. Run tests — `uv run pytest -v`

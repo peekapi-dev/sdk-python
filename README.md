@@ -140,6 +140,18 @@ Bug reports and feature requests: [peekapi-dev/community](https://github.com/pee
 4. Lint & format — `uv run ruff check src/ tests/` / `uv run ruff format src/ tests/`
 5. Submit a PR
 
+## Support
+
+If you find PeekAPI useful, give this repo a star — it helps others discover the project.
+
+### Badge
+
+Show that your API is monitored by PeekAPI:
+
+```markdown
+[![Monitored by PeekAPI](https://img.shields.io/badge/monitored%20by-PeekAPI-06b6d4)](https://peekapi.dev)
+```
+
 ## License
 
 MIT

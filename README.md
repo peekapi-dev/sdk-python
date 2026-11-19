@@ -1,5 +1,7 @@
 # PeekAPI — Python SDK
 
+> **PeekAPI has shut down.** The service closed in November 2026 and its ingest endpoint is offline, so this SDK can no longer deliver events. The package stays published for reference only; remove it from your project. See [peekapi.dev](https://peekapi.dev).
+
 [![PyPI](https://img.shields.io/pypi/v/peekapi)](https://pypi.org/project/peekapi/)
 [![license](https://img.shields.io/pypi/l/peekapi)](./LICENSE)
 [![CI](https://github.com/peekapi-dev/sdk-python/actions/workflows/ci.yml/badge.svg)](https://github.com/peekapi-dev/sdk-python/actions/workflows/ci.yml)
